@@ -1,4 +1,4 @@
-use crate::model::{Item, Settings};
+use crate::model::{Item, Settings, SettingsPatch};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::{
     path::Path,
@@ -133,10 +133,28 @@ impl Database {
         raw.map(|s| serde_json::from_str(&s).map_err(|e| e.to_string()))
             .unwrap_or_else(|| Ok(Settings::default()))
     }
+    #[cfg(test)]
     pub fn set_settings(&self, s: &Settings) -> Result<(), String> {
         s.validate()?;
         self.lock()?.execute("INSERT INTO settings(id,json) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET json=excluded.json",[serde_json::to_string(s).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
         Ok(())
+    }
+    pub fn patch_settings(&self, patch: SettingsPatch) -> Result<Settings, String> {
+        let mut c = self.lock()?;
+        let tx = c.transaction().map_err(|e| e.to_string())?;
+        let raw: Option<String> = tx
+            .query_row("SELECT json FROM settings WHERE id=1", [], |r| r.get(0))
+            .optional()
+            .map_err(|e| e.to_string())?;
+        let mut settings = match raw {
+            Some(raw) => serde_json::from_str(&raw).map_err(|e| e.to_string())?,
+            None => Settings::default(),
+        };
+        patch.apply(&mut settings);
+        settings.validate()?;
+        tx.execute("INSERT INTO settings(id,json) VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET json=excluded.json",[serde_json::to_string(&settings).map_err(|e|e.to_string())?]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(settings)
     }
     pub fn delivered(&self, id: &str, version: i64, stage: &str, at: i64) -> Result<bool, String> {
         self.lock()?.query_row("SELECT EXISTS(SELECT 1 FROM deliveries WHERE item_id=?1 AND version=?2 AND stage=?3 AND scheduled_at=?4)",params![id,version,stage,at],|r|r.get(0)).map_err(|e|e.to_string())
@@ -230,5 +248,45 @@ mod tests {
             assert!(!d.delivered(&id, 1, "n5", 100).unwrap());
         }
         std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+    #[test]
+    fn legacy_settings_and_items_survive_patches() {
+        let d = Database::from_connection(Connection::open_in_memory().unwrap()).unwrap();
+        d.lock().unwrap().execute("INSERT INTO settings VALUES(1,?1)",[r#"{"notificationMinutes":[15,3],"sound":false,"fullscreen":false,"sidebarSide":"left"}"#]).unwrap();
+        let item = d.save(super::tests::example()).unwrap();
+        d.complete(&item.id, true, 123).unwrap();
+        let s = d.settings().unwrap();
+        assert_eq!(s.accent_color, "#4f6bed");
+        assert_eq!(s.onboarding_version, 0);
+        assert!(!s.sound);
+        d.patch_settings(SettingsPatch {
+            theme_mode: Some("dark".into()),
+            ..Default::default()
+        })
+        .unwrap();
+        d.patch_settings(SettingsPatch {
+            sidebar_enabled: Some(true),
+            ..Default::default()
+        })
+        .unwrap();
+        let s = d.settings().unwrap();
+        assert_eq!(s.theme_mode, "dark");
+        assert!(s.sidebar_enabled);
+        assert_eq!(s.notification_minutes, vec![15, 3]);
+        assert_eq!(s.sidebar_side, "left");
+        assert!(!s.sound);
+        assert_eq!(d.get(&item.id).unwrap().completed_at, Some(123));
+        assert!(d
+            .patch_settings(SettingsPatch {
+                accent_color: Some("invalid".into()),
+                ..Default::default()
+            })
+            .is_err());
+        assert_eq!(d.settings().unwrap().theme_mode, "dark");
     }
 }

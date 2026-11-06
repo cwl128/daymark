@@ -56,12 +56,19 @@ impl Item {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub notification_minutes: Vec<i64>,
     pub sound: bool,
     pub fullscreen: bool,
     pub sidebar_side: String,
+    pub sidebar_enabled: bool,
+    pub sidebar_auto_hide: bool,
+    pub theme_mode: String,
+    pub accent_color: String,
+    pub background_light: String,
+    pub background_dark: String,
+    pub onboarding_version: u32,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -70,13 +77,68 @@ impl Default for Settings {
             sound: true,
             fullscreen: true,
             sidebar_side: "right".into(),
+            sidebar_enabled: false,
+            sidebar_auto_hide: true,
+            theme_mode: "system".into(),
+            accent_color: "#4f6bed".into(),
+            background_light: "#f8fafc".into(),
+            background_dark: "#111827".into(),
+            onboarding_version: 0,
         }
+    }
+}
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SettingsPatch {
+    pub notification_minutes: Option<Vec<i64>>,
+    pub sound: Option<bool>,
+    pub fullscreen: Option<bool>,
+    pub sidebar_side: Option<String>,
+    pub sidebar_enabled: Option<bool>,
+    pub sidebar_auto_hide: Option<bool>,
+    pub theme_mode: Option<String>,
+    pub accent_color: Option<String>,
+    pub background_light: Option<String>,
+    pub background_dark: Option<String>,
+    pub onboarding_version: Option<u32>,
+}
+impl SettingsPatch {
+    pub fn apply(self, s: &mut Settings) {
+        macro_rules! patch { ($($field:ident),*) => { $(if let Some(value)=self.$field {s.$field=value;})* }; }
+        patch!(
+            notification_minutes,
+            sound,
+            fullscreen,
+            sidebar_side,
+            sidebar_enabled,
+            sidebar_auto_hide,
+            theme_mode,
+            accent_color,
+            background_light,
+            background_dark,
+            onboarding_version
+        );
     }
 }
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         if !["left", "right"].contains(&self.sidebar_side.as_str()) {
             return Err("侧边位置无效".into());
+        }
+        if !["system", "light", "dark"].contains(&self.theme_mode.as_str()) {
+            return Err("主题无效".into());
+        }
+        for color in [
+            &self.accent_color,
+            &self.background_light,
+            &self.background_dark,
+        ] {
+            if color.len() != 7
+                || !color.starts_with('#')
+                || !color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+            {
+                return Err("请选择有效的颜色".into());
+            }
         }
         if self.notification_minutes.len() > 4
             || self

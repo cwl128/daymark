@@ -3,7 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 app_path="src-tauri/target/release/bundle/macos/Daymark.app"
-output_path="${1:-packages/Daymark_0.1.0_$(uname -m).dmg}"
+version="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app_path/Contents/Info.plist")"
+output_path="${1:-packages/Daymark_${version}_$(uname -m).dmg}"
 if [[ ! -d "$app_path" ]]; then
   echo 'Build first: pnpm tauri build --bundles app' >&2
   exit 1

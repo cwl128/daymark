@@ -1,11 +1,11 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { defaultSettings, type Item, type Settings, type Alert } from './types';
+import { defaultSettings, normalizeSettings, type Item, type Settings, type Alert, type SidebarState, type NotificationStatus, type NotificationTestState } from './types';
 import { validateItem } from './calendar';
 export const native=isTauri();
 const KEY='daymark-preview-v1';
 interface Preview { items:Item[]; settings:Settings }
-function preview():Preview { const raw=localStorage.getItem(KEY);return raw?JSON.parse(raw):{items:[],settings:defaultSettings}; }
+function preview():Preview { const raw=localStorage.getItem(KEY);const p:Preview=raw?JSON.parse(raw):{items:[],settings:defaultSettings};return {...p,settings:normalizeSettings(p.settings)}; }
 function write(p:Preview){localStorage.setItem(KEY,JSON.stringify(p));window.dispatchEvent(new Event('preview-changed'));}
 export const api={
  list:():Promise<Item[]>=>native?invoke('list_items'):Promise.resolve(preview().items),
@@ -18,9 +18,18 @@ export const api={
  },
  async remove(item:Item){if(native)return invoke<void>('delete_item',{id:item.id,version:item.version});const p=preview();if(!p.items.some(i=>i.id===item.id&&i.version===item.version))throw Error('内容已更新，请刷新后重试');p.items=p.items.filter(i=>i.id!==item.id);write(p);},
  async complete(id:string,completed:boolean){if(native)return invoke<void>('complete_item',{id,completed});const p=preview();p.items=p.items.map(i=>i.id===id?{...i,completedAt:completed?Math.floor(Date.now()/1000):null,snoozeUntil:null,version:i.version+1}:i);write(p);},
- async saveSettings(settings:Settings){if(native)return invoke<void>('save_settings',{settings});const p=preview();write({...p,settings});},
+ async updateSettings(patch:Partial<Settings>):Promise<Settings>{if(native)return invoke('update_settings',{patch});const p=preview();const settings=normalizeSettings({...p.settings,...patch});write({...p,settings});return settings;},
  async subscribe(refresh:()=>void){if(native)return listen('data-changed',refresh);const storage=(e:StorageEvent)=>{if(e.key===KEY)refresh();};window.addEventListener('storage',storage);window.addEventListener('preview-changed',refresh);return()=>{window.removeEventListener('storage',storage);window.removeEventListener('preview-changed',refresh);};},
- sidebar:(expanded:boolean)=>invoke<void>('set_sidebar',{expanded}),
+ sidebarState:()=>invoke<SidebarState>('sidebar_state'),
+ sidebarAction:(action:'toggle'|'collapse'|'pin'|'activate')=>invoke<void>('sidebar_action',{action}),
+ sidebarHover:(inside:boolean)=>invoke<void>('sidebar_hover',{inside}),
+ sidebarResize:(height:number)=>invoke<void>('sidebar_resize',{height}),
+ notificationStatus:():Promise<NotificationStatus>=>native?invoke('notification_status'):Promise.resolve({authorization:'unknown',alerts:'unknown',sound:'unknown',detail:'系统通知请在安装后的 Daymark 应用中测试。浏览器预览不发送系统通知。'}),
+ requestNotification:()=>invoke<NotificationStatus>('request_notification_permission'),
+ startNotificationTest:()=>invoke<NotificationTestState>('start_notification_test'),
+ notificationTestState:()=>invoke<NotificationTestState>('notification_test_state'),
+ cancelNotificationTest:()=>invoke<void>('cancel_notification_test'),
+ openNotificationSettings:()=>invoke<void>('open_notification_settings'),
  alert:()=>invoke<Alert|null>('get_alert'),
  actAlert:(action:'complete'|'snooze'|'close')=>invoke<void>('act_alert',{action}),
  showMain:()=>invoke<void>('show_main'),

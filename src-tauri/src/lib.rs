@@ -1,9 +1,11 @@
 mod db;
 mod model;
+mod notifications;
 mod scheduler;
+mod sidebar;
 mod windows;
 use db::Database;
-use model::{Item, Settings};
+use model::{Item, Settings, SettingsPatch};
 use tauri::{Emitter, Manager, State};
 use windows::{Alert, RuntimeState};
 fn changed(app: &tauri::AppHandle) {
@@ -46,34 +48,49 @@ fn complete_item(
 fn get_settings(db: State<'_, Database>) -> Result<Settings, String> {
     db.settings()
 }
+fn apply_settings(app: &tauri::AppHandle, s: Settings) -> Result<Settings, String> {
+    if !s.fullscreen {
+        windows::hide_alert(app)?;
+    }
+    sidebar::cancel_pending(app);
+    sidebar::apply(app)?;
+    changed(app);
+    Ok(s)
+}
 #[tauri::command]
-fn save_settings(
+async fn update_settings(
     app: tauri::AppHandle,
     db: State<'_, Database>,
-    settings: Settings,
-) -> Result<(), String> {
-    db.set_settings(&settings)?;
-    if !settings.fullscreen {
-        windows::hide_alert(&app)?;
-    }
-    if app.get_webview_window("sidebar").is_some() {
-        let expanded = *app
-            .state::<RuntimeState>()
-            .expanded
-            .lock()
-            .map_err(|_| "侧边状态不可用")?;
-        windows::sidebar(&app, expanded)?;
-    }
-    changed(&app);
-    Ok(())
+    patch: SettingsPatch,
+) -> Result<Settings, String> {
+    let s = db.patch_settings(patch)?;
+    apply_settings(&app, s)
+}
+// Compatibility with 0.1.0 callers, now merging only supplied settings.
+#[tauri::command]
+async fn save_settings(
+    app: tauri::AppHandle,
+    db: State<'_, Database>,
+    settings: SettingsPatch,
+) -> Result<Settings, String> {
+    let s = db.patch_settings(settings)?;
+    apply_settings(&app, s)
 }
 #[tauri::command]
-async fn set_sidebar(app: tauri::AppHandle, expanded: bool) -> Result<(), String> {
-    windows::sidebar(&app, expanded)
+fn sidebar_state(app: tauri::AppHandle) -> Result<sidebar::SidebarState, String> {
+    sidebar::state(&app)
 }
 #[tauri::command]
-fn sidebar_state(state: State<'_, RuntimeState>) -> Result<bool, String> {
-    Ok(*state.expanded.lock().map_err(|_| "侧边状态不可用")?)
+async fn sidebar_action(app: tauri::AppHandle, action: String) -> Result<(), String> {
+    sidebar::action(&app, &action)
+}
+#[tauri::command]
+fn sidebar_hover(app: tauri::AppHandle, inside: bool) -> Result<(), String> {
+    sidebar::hover(app, inside)
+}
+#[tauri::command]
+fn sidebar_resize(app: tauri::AppHandle, height: f64) -> Result<(), String> {
+    sidebar::resize(&app, height)
 }
 #[tauri::command]
 fn show_main(app: tauri::AppHandle) -> Result<(), String> {
@@ -112,37 +129,103 @@ fn act_alert(app: tauri::AppHandle, db: State<'_, Database>, action: String) -> 
     Ok(())
 }
 #[tauri::command]
-async fn test_notification(app: tauri::AppHandle) -> Result<(), String> {
-    let settings = app.state::<Database>().settings()?;
-    let item = Item {
-        id: "test".into(),
-        title: "测试通知".into(),
-        notes: "".into(),
-        kind: "event".into(),
-        starts_at: Some(chrono::Utc::now().timestamp() + 600),
-        ends_at: None,
-        due_at: None,
-        completed_at: None,
-        snooze_until: None,
-        version: 0,
+async fn notification_status(
+    app: tauri::AppHandle,
+) -> Result<notifications::NotificationStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || notifications::status(&app))
+        .await
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn request_notification_permission(
+    app: tauri::AppHandle,
+) -> Result<notifications::NotificationStatus, String> {
+    tauri::async_runtime::spawn_blocking(move || notifications::request(&app))
+        .await
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn start_notification_test(
+    app: tauri::AppHandle,
+) -> Result<notifications::TestState, String> {
+    tauri::async_runtime::spawn_blocking(move || notifications::start_test(app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+fn notification_test_state(app: tauri::AppHandle) -> Result<notifications::TestState, String> {
+    notifications::test_state(&app)
+}
+#[tauri::command]
+fn cancel_notification_test(app: tauri::AppHandle) -> Result<(), String> {
+    notifications::cancel_test(&app)
+}
+#[tauri::command]
+async fn open_notification_settings() -> Result<(), String> {
+    notifications::open_settings()
+}
+fn color(hex: &str) -> Option<tauri::window::Color> {
+    if hex.len() != 7 || !hex.starts_with('#') {
+        return None;
+    }
+    let value = u32::from_str_radix(&hex[1..], 16).ok()?;
+    Some(tauri::window::Color(
+        ((value >> 16) & 255) as u8,
+        ((value >> 8) & 255) as u8,
+        (value & 255) as u8,
+        255,
+    ))
+}
+#[tauri::command]
+fn sync_theme(app: tauri::AppHandle, mode: String, background: String) -> Result<(), String> {
+    let theme = match mode.as_str() {
+        "light" => Some(tauri::Theme::Light),
+        "dark" => Some(tauri::Theme::Dark),
+        "system" => None,
+        _ => return Err("主题无效".into()),
     };
-    tauri::async_runtime::spawn_blocking(move || {
-        scheduler::send_notification(&app, &item, settings.sound)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    let bg = color(&background).ok_or("颜色无效")?;
+    for window in app.webview_windows().values() {
+        window.set_theme(theme).map_err(|e| e.to_string())?;
+        window
+            .set_background_color(Some(bg))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+#[tauri::command]
+fn ui_ready(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() == "main" {
+        windows::show_main(window.app_handle())?;
+    }
+    Ok(())
 }
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             let _ = windows::show_main(app);
         }))
-        .plugin(tauri_plugin_notification::init())
         .manage(RuntimeState::default())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
             app.manage(Database::open(&dir.join("daymark.db")).map_err(std::io::Error::other)?);
+            let s = app
+                .state::<Database>()
+                .settings()
+                .map_err(std::io::Error::other)?;
+            if let Some(w) = app.get_webview_window("main") {
+                let dark = match s.theme_mode.as_str() {
+                    "dark" => true,
+                    "light" => false,
+                    _ => w.theme()? == tauri::Theme::Dark,
+                };
+                w.set_background_color(color(if dark {
+                    &s.background_dark
+                } else {
+                    &s.background_light
+                }))?;
+            }
             use tauri::{
                 menu::{Menu, MenuItem},
                 tray::TrayIconBuilder,
@@ -159,7 +242,13 @@ pub fn run() {
                         let _ = windows::show_main(app);
                     }
                     "sidebar" => {
-                        let _ = windows::sidebar(app, true);
+                        let patch = SettingsPatch {
+                            sidebar_enabled: Some(true),
+                            ..Default::default()
+                        };
+                        let _ = app.state::<Database>().patch_settings(patch);
+                        let _ = sidebar::expand(app, true);
+                        let _ = app.emit("data-changed", ());
                     }
                     "quit" => app.exit(0),
                     _ => {}
@@ -168,10 +257,16 @@ pub fn run() {
                 tray = tray.icon(icon.clone());
             }
             tray.build(app)?;
+            sidebar::apply(app.handle()).map_err(std::io::Error::other)?;
             scheduler::start(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Focused(false) = event {
+                if window.label() == "sidebar" {
+                    sidebar::focus_lost(window.app_handle());
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 match window.label() {
                     "main" => {
@@ -180,7 +275,7 @@ pub fn run() {
                     }
                     "sidebar" => {
                         api.prevent_close();
-                        let _ = windows::sidebar(window.app_handle(), false);
+                        let _ = sidebar::expand(window.app_handle(), false);
                     }
                     "reminder" => {
                         api.prevent_close();
@@ -197,13 +292,23 @@ pub fn run() {
             complete_item,
             get_settings,
             save_settings,
-            set_sidebar,
+            update_settings,
             sidebar_state,
+            sidebar_action,
+            sidebar_hover,
+            sidebar_resize,
             show_main,
             get_alert,
             act_alert,
-            test_notification,
-            reminder_status
+            reminder_status,
+            notification_status,
+            request_notification_permission,
+            start_notification_test,
+            notification_test_state,
+            cancel_notification_test,
+            open_notification_settings,
+            sync_theme,
+            ui_ready
         ])
         .run(tauri::generate_context!())
         .expect("Daymark startup failed");

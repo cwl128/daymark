@@ -142,58 +142,7 @@ fn tick(
     Ok(())
 }
 pub fn send_notification(app: &tauri::AppHandle, item: &Item, sound: bool) -> Result<(), String> {
-    let mut n = notify_rust::Notification::new();
-    n.summary(&format!("Daymark · {}", item.title));
-    let when = item
-        .target()
-        .and_then(|t| chrono::DateTime::from_timestamp(t, 0))
-        .map(|t| {
-            t.with_timezone(&chrono::Local)
-                .format("%m月%d日 %H:%M")
-                .to_string()
-        })
-        .unwrap_or_default();
-    n.body(&format!(
-        "{when} · {}",
-        if item.kind == "task" {
-            "任务即将截止"
-        } else {
-            "日程即将开始"
-        }
-    ));
-    #[cfg(target_os = "macos")]
-    {
-        let _ = notify_rust::set_application(if tauri::is_dev() {
-            "com.apple.Terminal"
-        } else {
-            &app.config().identifier
-        });
-        if sound {
-            n.sound_name("NSUserNotificationDefaultSoundName");
-        }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        if !tauri::is_dev() {
-            n.app_id(&app.config().identifier);
-        }
-        if sound {
-            n.sound_name("Default");
-        }
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        let _ = app;
-        if sound {
-            n.sound_name("message-new-instant");
-        } else {
-            n.hint(notify_rust::Hint::SuppressSound(true));
-        }
-    }
-    // Unlike the plugin's desktop fire-and-forget helper, return the native API error so
-    // the scheduler can retry. API acceptance still cannot guarantee presentation through DND.
-    n.show().map_err(|e| e.to_string())?;
-    Ok(())
+    crate::notifications::send(app, item, sound)
 }
 
 #[cfg(test)]

@@ -12,3 +12,5 @@ test-results/
 src-tauri/gen/
 
 packages/
+src-tauri/icons/android/
+src-tauri/icons/ios/

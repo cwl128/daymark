@@ -1,7 +1,11 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { DataProvider } from './hooks';
+import { ThemeProvider } from './ThemeProvider';
+import { applyCachedTheme } from './theme';
 import { App } from './App';
 import { Sidebar,Reminder } from './NativeWindows';
 import './styles.css';
+applyCachedTheme();
 const windowType=new URLSearchParams(location.search).get('window');
-createRoot(document.getElementById('root')!).render(<React.StrictMode>{windowType==='sidebar'?<Sidebar/>:windowType==='reminder'?<Reminder/>:<App/>}</React.StrictMode>);
+createRoot(document.getElementById('root')!).render(<React.StrictMode><DataProvider><ThemeProvider>{windowType==='sidebar'?<Sidebar/>:windowType==='reminder'?<Reminder/>:<App/>}</ThemeProvider></DataProvider></React.StrictMode>);

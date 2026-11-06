@@ -1,6 +1,6 @@
 [package]
 name = "daymark"
-version = "0.1.0"
+version = "0.1.1"
 description = "Free offline calendar and todo desktop app"
 authors = ["Daymark contributors"]
 license = "Apache-2.0"
@@ -16,11 +16,16 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
-tauri-plugin-notification = "2"
-notify-rust = "4.18"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-usernotifications = "=0.3.1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+notify-rust = "4.18"
+windows = { version = "0.61", features = ["UI_Notifications", "Foundation", "System"] }
