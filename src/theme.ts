@@ -16,7 +16,7 @@ export function palette(s:Settings,systemDark:boolean){
  const accentReadable=Math.min(contrast(bg,s.accentColor),contrast(surface,s.accentColor))>=4.5?s.accentColor:fg;
  const accentText=contrast(s.accentColor,'#ffffff')>=4.5?'#ffffff':'#000000';
  const selected=mix(surface,s.accentColor,.16);const selectedText=contrast(selected,fg)>=4.5?fg:contrast(selected,'#ffffff')>=4.5?'#ffffff':'#000000';
- return{dark,bg,fg,surface,muted,border,accent:s.accentColor,accentText,accentReadable,selected,selectedText,subtle:mix(bg,fg,.035),hover:mix(surface,fg,.055),danger:contrast(bg,'#be3535')>=4.5?'#be3535':'#ffb4ab'};
+ return{dark,bg,fg,surface,muted,border,accent:s.accentColor,accentText,accentReadable,selected,selectedText,subtle:mix(bg,fg,.035),hover:mix(surface,fg,.055),danger:score('#be3535')>=4.5?'#be3535':score('#ffb4ab')>=4.5?'#ffb4ab':fg};
 }
 export function applyTheme(s:Settings,systemDark:boolean){const p=palette(s,systemDark);const root=document.documentElement;root.dataset.theme=p.dark?'dark':'light';root.style.colorScheme=luminance(p.bg)<.35?'dark':'light';for(const [name,value]of Object.entries(p)){if(typeof value==='string')root.style.setProperty('--'+name,value);}return p;}
 export function applyCachedTheme(){try{applyTheme(normalizeSettings(JSON.parse(localStorage.getItem(KEY)||'{}')),matchMedia('(prefers-color-scheme: dark)').matches);}catch{applyTheme(defaultSettings,matchMedia('(prefers-color-scheme: dark)').matches);}}
