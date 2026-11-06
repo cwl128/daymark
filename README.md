@@ -4,6 +4,18 @@
 
 开发中，当前版本 **0.1.0**。以 [PRD](docs/PRD.md) 和 [验证记录](docs/VALIDATION.md) 为准，不将尚未完成的跨平台验收当成发布承诺。
 
+## 下载安装
+
+如果只是安装使用，不需要安装 Node.js、Rust 或下载源码。
+
+打开 [0.1.0 安装包下载页](https://github.com/cwl128/daymark/releases/tag/v0.1.0)：
+
+- Apple 芯片 Mac：选择 `aarch64.dmg`。
+- Intel Mac：选择 `x64.dmg`。
+- Windows 64 位：选择 `x64-setup.exe`。
+
+这是 **0.1.0 开发预览版**。全屏操作、睡眠恢复、多显示器等仍有待真机验收，具体状态见验证记录。下载页只应将完成构建的资产列为可用；源码仓库本身不是在线日历网站。
+
 ## 本地运行
 
 安装 Node.js 22+、pnpm 11.25.0、稳定版 Rust，以及 [Tauri 系统依赖](https://v2.tauri.app/start/prerequisites/)。

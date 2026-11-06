@@ -34,12 +34,22 @@
 - 诚实限制：没有完整观察到全屏倒计时、完成/暂缓/Escape 三种操作的原生呈现；没有实际令设备睡眠或改系统时区；这部分不能据 API 返回成功视为真机验收通过。还需检查多屏、Mac Spaces、系统勿扰、Windows 托盘和声音。
 - 最终 macOS 发行应用约 13 MiB。初次 DMG Finder 美化流程在卸载临时磁盘时失败，已增加 `scripts/package-macos.sh` 的无 Finder 打包路径；清理了本任务遗留的临时挂载。
 - 发现默认链接器签名不能通过完整 bundle 校验，已显式配置 macOS 免费 ad-hoc 签名；`codesign --verify --deep --strict` 通过。无 Apple 开发者身份签名或公证，不能承诺没有系统安全提示。
-- Windows 与 Intel Mac 安装包目前只有已编写的 Actions 工作流，尚未在 GitHub 执行。待仓库创建和上传后再记录真实远端结果。
+- 首次本机交付时，Windows 与 Intel Mac 只完成工作流编写；后续实际执行与发布结果见下方 GitHub 发行记录。
 
 ## 待验收
 
 - [ ] macOS 全屏：可见倒计时；完成、暂缓 5 分钟、关闭、Escape；主窗同步；多条提醒排队。
 - [ ] 实际睡眠恢复、系统时钟前/后调、时区改变、系统勿扰、禁用通知后的提示。
 - [ ] Windows 安装、卸载、托盘、左右侧栏、多显示器缩放、通知和全屏。
-- [ ] Intel Mac 真机运行；GitHub Release 三个平台资产齐全。
+- [ ] Intel Mac 真机运行。
+- [x] GitHub Release 三个平台资产齐全，并验证公开下载与 SHA-256。
 - [ ] 提醒声音目前只有系统默认/静音，更多铃声选择未实现。
+
+## GitHub 开源与免费发行
+
+- 公开源码仓库：<https://github.com/cwl128/daymark>。使用独立仓库，英语学习网站仓库没有改动。
+- 已公开的开发预览：<https://github.com/cwl128/daymark/releases/tag/v0.1.0>，标记为 Pre-release，包含中文安装说明和未完成的真机验收项。
+- 发行流程 `42066449715`（手动启动）和 `42068437516`（标签触发）都成功完成 macOS ARM64、macOS Intel 和 Windows x64 的测试及安装包构建。
+- 公开资产：`Daymark_0.1.0_aarch64.dmg`（4,224,163 字节）、`Daymark_0.1.0_x64.dmg`（4,528,171 字节）、`Daymark_0.1.0_x64-setup.exe`（2,995,703 字节）。三个链接均成功下载，并与 GitHub 提供的 SHA-256 一致。
+- 独立 Checks 流程 `42066112809` 的前端和 Windows 原生任务通过；首次 macOS 任务被取消，已仅重跑该任务，补跑后成功。最新一次 Checks 的前端、Windows、macOS 任务均通过（Rust 格式、单元测试、静态检查和调试构建）。
+- 编译成功不代表完成 Windows、Intel Mac 或全屏、睡眠、多屏功能的人工验收。上方待验收清单继续有效。
