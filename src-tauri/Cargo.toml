@@ -25,7 +25,9 @@ uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-usernotifications = "=0.3.1"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSEvent", "block2"] }
+block2 = "=0.6.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 notify-rust = "4.18"
-windows = { version = "0.61", features = ["UI_Notifications", "Foundation", "System"] }
+windows = { version = "0.61", features = ["UI_Notifications", "Foundation", "System", "Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }

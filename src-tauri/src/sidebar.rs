@@ -133,9 +133,11 @@ pub fn apply(app: &tauri::AppHandle) -> Result<(), String> {
         },
         settings.sidebar_side == "left",
     );
-    if !s.expanded {
-        window.set_focusable(false).map_err(|e| e.to_string())?;
-    }
+    // Becoming focusable does not activate the window. Hover preserves the
+    // current application's keyboard focus; a real click can focus naturally.
+    window
+        .set_focusable(s.expanded)
+        .map_err(|e| e.to_string())?;
     window
         .set_size(LogicalSize::new(w, h))
         .map_err(|e| e.to_string())?;
@@ -175,14 +177,6 @@ pub fn action(app: &tauri::AppHandle, action: &str) -> Result<(), String> {
             s.expanded = true;
             drop(s);
             apply(app)?;
-        }
-        "activate" => {
-            if state(app)?.expanded {
-                if let Some(w) = app.get_webview_window("sidebar") {
-                    w.set_focusable(true).map_err(|e| e.to_string())?;
-                    w.set_focus().map_err(|e| e.to_string())?;
-                }
-            }
         }
         _ => return Err("无效侧栏操作".into()),
     }
@@ -243,6 +237,79 @@ pub fn resize(app: &tauri::AppHandle, height: f64) -> Result<(), String> {
     }
     Ok(())
 }
+
+// Hover-opened windows intentionally do not own keyboard focus, so blur alone
+// cannot detect clicks into an already-active external application.
+pub fn watch_external_clicks(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        use block2::RcBlock;
+        use objc2_app_kit::{NSEvent, NSEventMask};
+        let handle = app.clone();
+        let block = RcBlock::new(move |_event: std::ptr::NonNull<NSEvent>| {
+            let target = handle.clone();
+            let _ = handle.run_on_main_thread(move || focus_lost(&target));
+        });
+        if let Some(monitor) = NSEvent::addGlobalMonitorForEventsMatchingMask_handler(
+            NSEventMask::LeftMouseDown | NSEventMask::RightMouseDown | NSEventMask::OtherMouseDown,
+            &block,
+        ) {
+            // Installed once in setup; retain the OS monitor for this process's
+            // lifetime. No event contents are read, recorded or transmitted.
+            std::mem::forget(monitor);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let handle = app.clone();
+        std::thread::spawn(move || {
+            use windows::Win32::{
+                Foundation::POINT,
+                UI::{
+                    Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON, VK_RBUTTON},
+                    WindowsAndMessaging::GetCursorPos,
+                },
+            };
+            let mut pressed = false;
+            loop {
+                let expanded = state(&handle).is_ok_and(|s| s.enabled && s.expanded && !s.pinned);
+                std::thread::sleep(std::time::Duration::from_millis(if expanded {
+                    25
+                } else {
+                    100
+                }));
+                // Read only mouse-button state; never collect keyboard input.
+                let down = unsafe {
+                    GetAsyncKeyState(VK_LBUTTON.0 as i32) < 0
+                        || GetAsyncKeyState(VK_RBUTTON.0 as i32) < 0
+                };
+                if down && !pressed && expanded {
+                    let mut point = POINT::default();
+                    if unsafe { GetCursorPos(&mut point) }.is_ok() {
+                        if let Some(window) = handle.get_webview_window("sidebar") {
+                            if let (Ok(pos), Ok(size)) =
+                                (window.outer_position(), window.outer_size())
+                            {
+                                let outside = point.x < pos.x
+                                    || point.y < pos.y
+                                    || point.x as i64 >= pos.x as i64 + size.width as i64
+                                    || point.y as i64 >= pos.y as i64 + size.height as i64;
+                                if outside {
+                                    let target = handle.clone();
+                                    let _ = handle.run_on_main_thread(move || focus_lost(&target));
+                                }
+                            }
+                        }
+                    }
+                }
+                pressed = down;
+            }
+        });
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = app;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

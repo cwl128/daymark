@@ -258,6 +258,7 @@ pub fn run() {
             }
             tray.build(app)?;
             sidebar::apply(app.handle()).map_err(std::io::Error::other)?;
+            sidebar::watch_external_clicks(app.handle());
             scheduler::start(app.handle().clone());
             Ok(())
         })

@@ -647,9 +647,11 @@ dependencies = [
 name = "daymark"
 version = "0.1.1"
 dependencies = [
+ "block2",
  "chrono",
  "mac-usernotifications",
  "notify-rust",
+ "objc2-app-kit",
  "rusqlite",
  "serde",
  "serde_json",
