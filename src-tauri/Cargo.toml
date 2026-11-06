@@ -25,8 +25,8 @@ uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 mac-usernotifications = "=0.3.1"
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSEvent", "block2"] }
-block2 = "=0.6.2"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSEvent", "NSWorkspace", "NSRunningApplication", "libc"] }
+objc2 = "=0.6.5"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 notify-rust = "4.18"

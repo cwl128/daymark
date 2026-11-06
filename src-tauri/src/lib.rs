@@ -3,6 +3,7 @@ mod model;
 mod notifications;
 mod scheduler;
 mod sidebar;
+mod sidebar_watch;
 mod windows;
 use db::Database;
 use model::{Item, Settings, SettingsPatch};
@@ -258,7 +259,7 @@ pub fn run() {
             }
             tray.build(app)?;
             sidebar::apply(app.handle()).map_err(std::io::Error::other)?;
-            sidebar::watch_external_clicks(app.handle());
+            sidebar_watch::start(app.handle());
             scheduler::start(app.handle().clone());
             Ok(())
         })
