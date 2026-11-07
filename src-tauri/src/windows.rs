@@ -42,7 +42,7 @@ pub fn reconcile_alert(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|_| "提醒状态不可用")?
         .clone();
     if let Some(alert) = active {
-        let current = app.state::<Database>().get(&alert.item.id);
+        let current = app.state::<Database>().current(&alert.item);
         if current.as_ref().map_or(true, |i| {
             i.completed_at.is_some() || i.version != alert.item.version
         }) {
@@ -61,7 +61,7 @@ pub fn show_alert(app: &tauri::AppHandle, alert: Alert) -> Result<bool, String> 
     {
         return Ok(false);
     }
-    let current = app.state::<Database>().get(&alert.item.id)?;
+    let current = app.state::<Database>().current(&alert.item)?;
     if current.completed_at.is_some() || current.version != alert.item.version {
         return Ok(false);
     }

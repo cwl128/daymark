@@ -1,6 +1,7 @@
 mod db;
 mod model;
 mod notifications;
+mod recurrence;
 mod scheduler;
 mod sidebar;
 mod sidebar_watch;
@@ -40,8 +41,14 @@ fn complete_item(
     db: State<'_, Database>,
     id: String,
     completed: bool,
+    occurrence_date: Option<String>,
 ) -> Result<(), String> {
-    db.complete(&id, completed, chrono::Utc::now().timestamp())?;
+    db.complete(
+        &id,
+        completed,
+        chrono::Utc::now().timestamp(),
+        occurrence_date.as_deref(),
+    )?;
     changed(&app);
     Ok(())
 }
@@ -119,8 +126,17 @@ fn act_alert(app: tauri::AppHandle, db: State<'_, Database>, action: String) -> 
         .clone();
     if let Some(alert) = alert {
         match action.as_str() {
-            "complete" => db.complete(&alert.item.id, true, chrono::Utc::now().timestamp())?,
-            "snooze" => db.snooze(&alert.item.id, chrono::Utc::now().timestamp() + 300)?,
+            "complete" => db.complete(
+                &alert.item.id,
+                true,
+                chrono::Utc::now().timestamp(),
+                alert.item.occurrence_date.as_deref(),
+            )?,
+            "snooze" => db.snooze(
+                &alert.item.id,
+                chrono::Utc::now().timestamp() + 300,
+                alert.item.occurrence_date.as_deref(),
+            )?,
             "close" => {}
             _ => return Err("无效操作".into()),
         }

@@ -1,4 +1,6 @@
-export interface Item { id: string; title: string; notes: string; kind: 'event'|'task'; startsAt: number|null; endsAt: number|null; dueAt: number|null; completedAt: number|null; snoozeUntil: number|null; version: number }
+export interface DailyRecurrence {startDate:string;time:string}
+export interface OccurrenceState {completedAt:number|null;snoozeUntil:number|null}
+export interface Item { id: string; title: string; notes: string; kind: 'event'|'task'; startsAt: number|null; endsAt: number|null; dueAt: number|null; completedAt: number|null; snoozeUntil: number|null; version: number; scheduledAt?:number|null; recurrence?:DailyRecurrence|null; occurrenceDate?:string|null; occurrenceStates?:Record<string,OccurrenceState> }
 export interface Settings {
  notificationMinutes:number[];sound:boolean;fullscreen:boolean;sidebarSide:'left'|'right';
  sidebarEnabled:boolean;sidebarAutoHide:boolean;themeMode:'system'|'light'|'dark';

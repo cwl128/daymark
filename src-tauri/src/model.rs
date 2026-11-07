@@ -1,6 +1,20 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DailyRecurrence {
+    pub start_date: String,
+    pub time: String,
+}
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OccurrenceState {
+    pub completed_at: Option<i64>,
+    pub snooze_until: Option<i64>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Item {
     pub id: String,
@@ -13,11 +27,19 @@ pub struct Item {
     pub completed_at: Option<i64>,
     pub snooze_until: Option<i64>,
     pub version: i64,
+    #[serde(default)]
+    pub scheduled_at: Option<i64>,
+    #[serde(default)]
+    pub recurrence: Option<DailyRecurrence>,
+    #[serde(default)]
+    pub occurrence_date: Option<String>,
+    #[serde(default)]
+    pub occurrence_states: BTreeMap<String, OccurrenceState>,
 }
 impl Item {
     pub fn target(&self) -> Option<i64> {
         if self.kind == "task" {
-            self.due_at.or(self.starts_at)
+            self.scheduled_at.or(self.due_at).or(self.starts_at)
         } else {
             self.starts_at
         }
@@ -32,7 +54,7 @@ impl Item {
         if !["event", "task"].contains(&self.kind.as_str()) {
             return Err("类型无效".into());
         }
-        for time in [self.starts_at, self.ends_at, self.due_at]
+        for time in [self.starts_at, self.ends_at, self.due_at, self.scheduled_at]
             .into_iter()
             .flatten()
         {
@@ -43,8 +65,12 @@ impl Item {
         if self.kind == "event" && (self.starts_at.is_none() || self.ends_at.is_none()) {
             return Err("日程需要开始和结束时间".into());
         }
-        if self.kind == "task" && self.target().is_none() {
-            return Err("任务需要开始时间或截止时间".into());
+        if let Some(recurrence) = &self.recurrence {
+            if self.kind != "task" {
+                return Err("每日重复只用于任务".into());
+            }
+            crate::recurrence::parse_date(&recurrence.start_date)?;
+            crate::recurrence::parse_clock(&recurrence.time)?;
         }
         if let (Some(start), Some(end)) = (self.starts_at, self.ends_at) {
             if end <= start {

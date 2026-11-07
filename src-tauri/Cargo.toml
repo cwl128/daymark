@@ -1,6 +1,6 @@
 [package]
 name = "daymark"
-version = "0.1.1"
+version = "0.1.2"
 description = "Free offline calendar and todo desktop app"
 authors = ["Daymark contributors"]
 license = "Apache-2.0"
@@ -31,3 +31,6 @@ objc2 = "=0.6.5"
 [target.'cfg(target_os = "windows")'.dependencies]
 notify-rust = "4.18"
 windows = { version = "0.61", features = ["UI_Notifications", "Foundation", "System", "Win32_Foundation", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
+
+[dev-dependencies]
+chrono-tz = "0.10"

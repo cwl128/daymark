@@ -176,7 +176,9 @@ pub fn send(app: &tauri::AppHandle, item: &Item, sound: bool) -> Result<(), Stri
             .unwrap_or_default();
         format!(
             "{when} · {}",
-            if item.kind == "task" {
+            if item.kind == "task" && item.scheduled_at.is_some() {
+                "定时待办提醒"
+            } else if item.kind == "task" {
                 "任务即将截止"
             } else {
                 "日程即将开始"
@@ -283,6 +285,7 @@ pub fn start_test(app: tauri::AppHandle) -> Result<TestState, String> {
                     completed_at: None,
                     snooze_until: None,
                     version: 0,
+                    ..Item::default()
                 },
                 settings.sound,
             )

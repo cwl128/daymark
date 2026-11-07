@@ -36,6 +36,13 @@ pub fn stages(item: &Item, s: &Settings) -> Vec<Stage> {
             fullscreen: false,
         })
         .collect();
+    if item.kind == "task" && item.scheduled_at.is_some() {
+        stages.push(Stage {
+            name: "at".into(),
+            at: target,
+            fullscreen: false,
+        });
+    }
     if s.fullscreen {
         stages.push(Stage {
             name: "fullscreen".into(),
@@ -72,7 +79,7 @@ fn tick(
 ) -> Result<(), String> {
     let db = app.state::<Database>();
     let settings = db.settings()?;
-    for item in db.list()? {
+    for item in crate::recurrence::around_now(db.list()?, now) {
         let due: Vec<_> = stages(&item, &settings)
             .into_iter()
             .filter(|s| s.at <= now)
@@ -86,7 +93,7 @@ fn tick(
             if retries.get(&key).is_some_and(|t| now - *t < 30) {
                 continue;
             }
-            let current = db.get(&item.id)?;
+            let current = db.current(&item)?;
             if current.completed_at.is_some() || current.version != item.version {
                 continue;
             }
@@ -160,6 +167,7 @@ mod tests {
             completed_at: None,
             snooze_until: None,
             version: 1,
+            ..Item::default()
         }
     }
     #[test]
@@ -209,5 +217,32 @@ mod tests {
         let list = stages(&item(), &s);
         assert_eq!(list[0].at, 9820);
         assert!(list.iter().all(|s| !s.fullscreen));
+    }
+}
+
+#[cfg(test)]
+mod point_tests {
+    use super::*;
+    #[test]
+    fn plain_tasks_have_no_timer_and_point_tasks_fire_at_the_chosen_time() {
+        let mut item = Item {
+            kind: "task".into(),
+            title: "打电话".into(),
+            ..Default::default()
+        };
+        assert!(stages(&item, &Settings::default()).is_empty());
+        item.scheduled_at = Some(10000);
+        let times = stages(&item, &Settings::default());
+        assert_eq!(
+            times[0],
+            Stage {
+                name: "at".into(),
+                at: 10000,
+                fullscreen: false
+            }
+        );
+        assert_eq!(times.iter().filter(|s| s.name == "at").count(), 1);
+        item.completed_at = Some(9999);
+        assert!(stages(&item, &Settings::default()).is_empty());
     }
 }
