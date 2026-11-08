@@ -7,7 +7,7 @@ use std::{
 
 pub struct Database(pub Mutex<Connection>);
 const COLUMNS: &str =
-    "id,title,notes,kind,starts_at,ends_at,due_at,completed_at,snooze_until,version,scheduled_at,recurrence";
+    "id,title,notes,kind,starts_at,ends_at,due_at,completed_at,snooze_until,version,scheduled_at,recurrence,task_date";
 fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
     Ok(Item {
         id: r.get(0)?,
@@ -33,6 +33,7 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Item> {
                 })
             })
             .transpose()?,
+        task_date: r.get(12)?,
         ..Item::default()
     })
 }
@@ -65,7 +66,7 @@ impl Database {
         CREATE TABLE IF NOT EXISTS items (
             id TEXT PRIMARY KEY, title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '',
             kind TEXT NOT NULL CHECK(kind IN ('event','task')), starts_at INTEGER, ends_at INTEGER, due_at INTEGER,
-            completed_at INTEGER, snooze_until INTEGER, version INTEGER NOT NULL DEFAULT 1, scheduled_at INTEGER, recurrence TEXT
+            completed_at INTEGER, snooze_until INTEGER, version INTEGER NOT NULL DEFAULT 1, scheduled_at INTEGER, recurrence TEXT, task_date TEXT
         );
         CREATE INDEX IF NOT EXISTS items_pending ON items(completed_at, starts_at, due_at);
         CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL);
@@ -83,7 +84,11 @@ impl Database {
             .map_err(|e| e.to_string())?
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|e| e.to_string())?;
-        for (name, kind) in [("scheduled_at", "INTEGER"), ("recurrence", "TEXT")] {
+        for (name, kind) in [
+            ("scheduled_at", "INTEGER"),
+            ("recurrence", "TEXT"),
+            ("task_date", "TEXT"),
+        ] {
             if !columns.iter().any(|column| column == name) {
                 c.execute(&format!("ALTER TABLE items ADD COLUMN {name} {kind}"), [])
                     .map_err(|e| e.to_string())?;
@@ -93,7 +98,7 @@ impl Database {
             "CREATE TABLE IF NOT EXISTS occurrence_states (
             item_id TEXT NOT NULL REFERENCES items(id) ON DELETE CASCADE,
             occurrence_date TEXT NOT NULL, completed_at INTEGER, snooze_until INTEGER,
-            PRIMARY KEY(item_id,occurrence_date)); PRAGMA user_version=2; COMMIT;",
+            PRIMARY KEY(item_id,occurrence_date)); PRAGMA user_version=3; COMMIT;",
         )
         .map_err(|e| e.to_string())?;
         Ok(Self(Mutex::new(c)))
@@ -161,9 +166,9 @@ impl Database {
             item.version = 1;
             item.completed_at = None;
             item.snooze_until = None;
-            tx.execute("INSERT INTO items(id,title,notes,kind,starts_at,ends_at,due_at,scheduled_at,recurrence,version) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,1)",params![item.id,item.title,item.notes,item.kind,item.starts_at,item.ends_at,item.due_at,item.scheduled_at,recurrence]).map_err(|e|e.to_string())?;
+            tx.execute("INSERT INTO items(id,title,notes,kind,starts_at,ends_at,due_at,scheduled_at,recurrence,task_date,version) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,1)",params![item.id,item.title,item.notes,item.kind,item.starts_at,item.ends_at,item.due_at,item.scheduled_at,recurrence,item.task_date]).map_err(|e|e.to_string())?;
         } else {
-            let changed=tx.execute("UPDATE items SET title=?2,notes=?3,kind=?4,starts_at=?5,ends_at=?6,due_at=?7,scheduled_at=?9,recurrence=?10,completed_at=CASE WHEN ?10 IS NOT NULL THEN NULL ELSE completed_at END,snooze_until=NULL,version=version+1 WHERE id=?1 AND version=?8",params![item.id,item.title,item.notes,item.kind,item.starts_at,item.ends_at,item.due_at,item.version,item.scheduled_at,recurrence]).map_err(|e|e.to_string())?;
+            let changed=tx.execute("UPDATE items SET title=?2,notes=?3,kind=?4,starts_at=?5,ends_at=?6,due_at=?7,scheduled_at=?9,recurrence=?10,task_date=?11,completed_at=CASE WHEN ?10 IS NOT NULL THEN NULL ELSE completed_at END,snooze_until=NULL,version=version+1 WHERE id=?1 AND version=?8",params![item.id,item.title,item.notes,item.kind,item.starts_at,item.ends_at,item.due_at,item.version,item.scheduled_at,recurrence,item.task_date]).map_err(|e|e.to_string())?;
             if changed == 0 {
                 return Err("内容已在其他窗口更新，请关闭编辑框后重新编辑".into());
             }
@@ -534,7 +539,82 @@ mod routine_tests {
                 .unwrap()
                 .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
-            2
+            3
+        );
+    }
+}
+
+#[cfg(test)]
+mod dated_task_tests {
+    use super::*;
+    #[test]
+    fn date_only_tasks_persist_edit_complete_and_never_schedule_a_timer() {
+        let path = std::env::temp_dir().join(format!("daymark-date-{}.db", uuid::Uuid::new_v4()));
+        let id;
+        {
+            let d = Database::open(&path).unwrap();
+            let task = d
+                .save(Item {
+                    title: "今天买生活用品".into(),
+                    kind: "task".into(),
+                    task_date: Some("2026-11-07".into()),
+                    ..Default::default()
+                })
+                .unwrap();
+            id = task.id.clone();
+            assert!(task.target().is_none());
+            assert!(crate::scheduler::stages(&task, &Settings::default()).is_empty());
+            d.complete(&id, true, 123, None).unwrap();
+            let done = d.get(&id).unwrap();
+            assert_eq!(done.completed_at, Some(123));
+            let changed = d
+                .save(Item {
+                    task_date: Some("2026-11-08".into()),
+                    ..done
+                })
+                .unwrap();
+            assert_eq!(changed.completed_at, Some(123));
+            assert!(d
+                .save(Item {
+                    task_date: Some("2026-02-30".into()),
+                    ..changed.clone()
+                })
+                .is_err());
+            assert!(d
+                .save(Item {
+                    scheduled_at: Some(2000000000),
+                    ..changed
+                })
+                .is_err());
+        }
+        {
+            let d = Database::open(&path).unwrap();
+            let task = d.get(&id).unwrap();
+            assert_eq!(task.task_date.as_deref(), Some("2026-11-08"));
+            assert_eq!(task.completed_at, Some(123));
+            assert!(task.target().is_none());
+            d.complete(&id, false, 124, None).unwrap();
+            assert!(d.get(&id).unwrap().completed_at.is_none());
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn upgrades_012_without_assigning_old_floating_tasks_to_an_arbitrary_day() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE items(id TEXT PRIMARY KEY,title TEXT NOT NULL,notes TEXT NOT NULL,kind TEXT NOT NULL,starts_at INTEGER,ends_at INTEGER,due_at INTEGER,completed_at INTEGER,snooze_until INTEGER,version INTEGER NOT NULL,scheduled_at INTEGER,recurrence TEXT);
+        INSERT INTO items VALUES('old','未指定日期','旧备注','task',NULL,NULL,NULL,123,NULL,4,NULL,NULL);PRAGMA user_version=2;").unwrap();
+        let d = Database::from_connection(c).unwrap();
+        let old = d.get("old").unwrap();
+        assert!(old.task_date.is_none());
+        assert_eq!(old.completed_at, Some(123));
+        assert_eq!(old.version, 4);
+        assert_eq!(old.notes, "旧备注");
+        assert_eq!(
+            d.lock()
+                .unwrap()
+                .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            3
         );
     }
 }

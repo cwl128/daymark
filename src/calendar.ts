@@ -6,7 +6,7 @@ export function sameDay(a:Date,b:Date) { return a.getFullYear()===b.getFullYear(
 export function target(item:Item) { return item.kind==='task' ? item.scheduledAt??item.dueAt??item.startsAt : item.startsAt; }
 export function onDay(item:Item, day:Date) {
  const start=epoch(dayStart(day)),end=epoch(addDays(day,1));
- if(item.kind==='task') { const at=item.scheduledAt??item.startsAt??item.dueAt; return at!==null && at>=start && at<end; }
+ if(item.kind==='task') { if(item.taskDate&&target(item)===null)return item.taskDate===dateKey(day); const at=item.scheduledAt??item.startsAt??item.dueAt; return at!==null && at>=start && at<end; }
  return item.startsAt!==null && item.endsAt!==null && item.startsAt<end && item.endsAt>start;
 }
 export function monthDays(d:Date) { const first=new Date(d.getFullYear(),d.getMonth(),1); const offset=(first.getDay()+6)%7; return Array.from({length:42},(_,i)=>addDays(first,i-offset)); }
@@ -20,6 +20,7 @@ export function validateItem(item:Item):string|null {
  if(item.notes.length>10000)return '备注不能超过 10000 字符';
  if(item.kind==='event' && (item.startsAt===null||item.endsAt===null))return '日程需要开始和结束时间';
  for(const n of [item.startsAt,item.endsAt,item.dueAt,item.scheduledAt??null])if(n!==null && (!Number.isFinite(n)||n<0||n>253402300799))return '时间无效';
+ if(item.taskDate&&(item.kind!=='task'||!!item.recurrence||target(item)!==null||!parseDateKey(item.taskDate)))return '请选择有效的待办日期；定时任务请使用提醒时间';
  if(item.recurrence&&(!parseDateKey(item.recurrence.startDate)||!normalizeClock(item.recurrence.time)))return '请选择有效的每日提醒日期和时间';
  if(item.startsAt!==null && item.endsAt!==null && item.endsAt<=item.startsAt)return '结束时间必须晚于开始时间';
  return null;
@@ -37,7 +38,8 @@ export function normalizeClock(value:string){const raw=value.trim().replace('：
 export function localOccurrence(day:Date,time:string){const valid=normalizeClock(time);if(!valid)return null;const [h,m]=valid.split(':').map(Number);for(let n=0;n<=180;n++){const total=h*60+m+n;if(total>=1440)return null;const d=new Date(day.getFullYear(),day.getMonth(),day.getDate(),Math.floor(total/60),total%60);if(dateKey(d)===dateKey(day)&&d.getHours()===Math.floor(total/60)&&d.getMinutes()===total%60)return epoch(d);}return null;}
 export function instanceOnDay(item:Item,day:Date):Item|null{if(!item.recurrence)return onDay(item,day)?item:null;const date=dateKey(day);if(date<item.recurrence.startDate)return null;const at=localOccurrence(day,item.recurrence.time);if(at===null)return null;const state=item.occurrenceStates?.[date];return {...item,scheduledAt:at,occurrenceDate:date,completedAt:state?.completedAt??null,snoozeUntil:state?.snoozeUntil??null};}
 export const untimed=(item:Item)=>item.kind==='task'&&!item.recurrence&&target(item)===null;
-export function instancesOnDay(items:Item[],day:Date,includeUntimed=false){return items.flatMap(item=>{const instance=instanceOnDay(item,day);return instance?[instance]:includeUntimed&&untimed(item)&&(item.completedAt===null||sameDay(new Date(item.completedAt*1000),day))?[item]:[];});}
+export const undated=(item:Item)=>untimed(item)&&!item.taskDate;
+export function instancesOnDay(items:Item[],day:Date,includeUntimed=false){return items.flatMap(item=>{const instance=instanceOnDay(item,day);return instance?[instance]:includeUntimed&&undated(item)&&(item.completedAt===null||sameDay(new Date(item.completedAt*1000),day))?[item]:[];});}
 export function nextItem(items:Item[],now:number){const day=new Date(now);const candidates=items.flatMap(item=>item.recurrence?[instanceOnDay(item,day),instanceOnDay(item,addDays(day,1))].filter((i):i is Item=>i!==null):[item]);return candidates.filter(i=>i.completedAt===null&&target(i)!>=now/1000).sort((a,b)=>target(a)!-target(b)!)[0];}
 export const itemKey=(item:Item)=>`${item.id}@${item.occurrenceDate??''}`;
-export function taskTime(item:Item){if(untimed(item))return '未定时';return `${clockTime(target(item))}${item.recurrence?' · 每天':item.dueAt?' 截止':''}`;}
+export function taskTime(item:Item){if(untimed(item))return item.taskDate?'不限时间':'未定时';return `${clockTime(target(item))}${item.recurrence?' · 每天':item.dueAt?' 截止':''}`;}

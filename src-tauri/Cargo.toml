@@ -1,6 +1,6 @@
 [package]
 name = "daymark"
-version = "0.1.2"
+version = "0.1.3"
 description = "Free offline calendar and todo desktop app"
 authors = ["Daymark contributors"]
 license = "Apache-2.0"

@@ -30,6 +30,8 @@ pub struct Item {
     #[serde(default)]
     pub scheduled_at: Option<i64>,
     #[serde(default)]
+    pub task_date: Option<String>,
+    #[serde(default)]
     pub recurrence: Option<DailyRecurrence>,
     #[serde(default)]
     pub occurrence_date: Option<String>,
@@ -64,6 +66,12 @@ impl Item {
         }
         if self.kind == "event" && (self.starts_at.is_none() || self.ends_at.is_none()) {
             return Err("日程需要开始和结束时间".into());
+        }
+        if let Some(date) = &self.task_date {
+            if self.kind != "task" || self.recurrence.is_some() || self.target().is_some() {
+                return Err("待办日期仅用于未设置具体时间的单次任务".into());
+            }
+            crate::recurrence::parse_date(date)?;
         }
         if let Some(recurrence) = &self.recurrence {
             if self.kind != "task" {
